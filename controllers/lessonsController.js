@@ -4,10 +4,14 @@ class LessonsController {
   async getLessons(req, res) {
     const { date, status, teacherIds, studentsCount, page, lessonsPerPage } =
       req.query;
-
+    let datesArray;
     // datesArray[0] - start date
     // datesArray[1] - end date
-    let datesArray = date.split(",");
+    if(date) {
+      datesArray = date.split(",");
+    } else {
+      datesArray = ['2000-01-01', '2400-01-01']
+    }
     let lessons;
     let sql = `SELECT lessons.*, count as visitCount FROM lessons
       JOIN (SELECT lesson_id, COUNT(*) FROM lesson_students GROUP BY lesson_id ORDER BY lesson_id) AS lesson_students
@@ -61,31 +65,38 @@ class LessonsController {
       }
 
       if (studentsCount) {
-        let studentsCountArray = studentsCount.split(',').map(Number);
+        let studentsCountArray = studentsCount.split(",").map(Number);
 
         // if user passed only one number in studentsCount param - set the second number the same
         if (studentsCountArray.length === 1) {
           studentsCountArray.push(studentsCountArray[0]);
         }
 
-        let studentsCountFilter = (studentsCountArray[0] <= students.length && students.length <= studentsCountArray[1]); 
+        let studentsCountFilter =
+          studentsCountArray[0] <= students.length &&
+          students.length <= studentsCountArray[1];
 
-        if(!studentsCountFilter) {
+        if (!studentsCountFilter) {
           lessons[i] = undefined;
         }
-
-
       }
 
-      // if lesson is not deleted while checking through - add students & teachers to the object
+      // if lesson is not deleted (is not null) while checking through
+      // add arrays of students & teachers to the object
       if (lessons[i]) {
         lessons[i]["students"] = students;
         lessons[i]["teachers"] = teachers;
       }
     }
 
+    const startSelect = (!page ? 0 : (page-1)) * (!lessonsPerPage ? 5 : lessonsPerPage)
+    const endSelect = (!page ? 1 : (page)) * (!lessonsPerPage ? 5 : lessonsPerPage)
+     
+
+    const selectedLessons = lessons.filter((lesson) => lesson).slice(startSelect, endSelect);
+
     // returning an array with removed null values (after checking through needed teachers)
-    res.json(lessons.filter((lesson) => lesson));
+    res.json(selectedLessons);
   }
 
   async createLesson(req, res) {}
