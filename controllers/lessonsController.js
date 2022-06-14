@@ -1,10 +1,41 @@
 const db = require("../utils/db");
-
+const format = require("date-format");
 class LessonsController {
-  async getLessons(req, res) {
+  #hasYearPassed = (d1, d2) => {
+
+    d1 = new Date(d1);
+    d2 = new Date(d2);
+    
+    let diff = d2.getTime() - d1.getTime(); 
+    let hasYearPassed = (diff / 31536000000);
+    
+    return hasYearPassed > 1;
+  }
+
+  #addDays = (date, day) => {
+    let new_date = new Date(date);
+    new_date.setDate(new_date.getDate() + day);
+    return new_date;
+  }
+
+  #getDates = (k, day, date) => {
+      const day_num = day
+
+      let new_day = new Date(date);
+      while (new_day.getDay() !== day_num) {
+          new_day = this.#addDays(new_day, 1)
+      }
+      
+      return Array(k).fill().map((_, index) => format('yyyy-MM-dd', this.#addDays(new_day, index * 7)) )
+  }
+
+  getLessons = async (req, res) => {
     const { date, status, teacherIds, studentsCount, page, lessonsPerPage } =
       req.query;
+      
     let datesArray;
+    let lessons;
+    
     // datesArray[0] - start date
     // datesArray[1] - end date
     if(date) {
@@ -12,7 +43,7 @@ class LessonsController {
     } else {
       datesArray = ['2000-01-01', '2400-01-01']
     }
-    let lessons;
+    
     let sql = `SELECT lessons.*, count as visitCount FROM lessons
       JOIN (SELECT lesson_id, COUNT(*) FROM lesson_students GROUP BY lesson_id ORDER BY lesson_id) AS lesson_students
       ON lesson_students.lesson_id = lessons.id
@@ -64,6 +95,7 @@ class LessonsController {
         }
       }
 
+      // if filter param exists
       if (studentsCount) {
         let studentsCountArray = studentsCount.split(",").map(Number);
 
@@ -98,8 +130,95 @@ class LessonsController {
     // returning an array with removed null values (after checking through needed teachers)
     res.json(selectedLessons);
   }
+   
+  createLesson = async (req, res) => {
+    const { teacherIds, title, days, firstDate, lessonsCount, lastDate } = req.body;
+    
+    // only 1 param needs
+    // to be passed
+    if(lessonsCount && lastDate) {
+      res.status(400).send({error: "Только один параметр из lessonsCount или lastDate должен быть указан"});
+      
+      return;
+    }
 
-  async createLesson(req, res) {}
+    if(!teacherIds || teacherIds.length === 0) {
+      res.status(400).send({error: "Не задан и/или неверно указан параметр teacherIds"});
+      
+      return;
+    }
+
+    let lessonsId = [];
+
+    const sql = `INSERT INTO lessons VALUES(default, $1, $2, 0) RETURNING id`;
+
+    let firstLesson = await db.query(sql, [firstDate, title]);
+    
+    lessonsId.push(firstLesson.rows[0].id);
+    
+    if(lessonsCount) {
+      
+      let lessonsToAdd = lessonsCount;
+      // as the first date we already inserted
+      lessonsToAdd -= 1;
+      
+      let iterationLastDate = firstDate;
+      let k = 0;
+      
+      while (lessonsToAdd > 0 && lessonsId.length < 300 && !this.#hasYearPassed(firstDate, iterationLastDate)) {
+        
+        if(!days[k]) {
+          k = 0;
+        }
+        
+        // get dates by days of the week
+        let date = await this.#getDates(1, days[k], iterationLastDate);
+        
+        let insertedLesson = await db.query(sql, [date, title]);
+
+        lessonsId.push(insertedLesson.rows[0].id);
+        
+        iterationLastDate = date;
+        k += 1;
+        lessonsToAdd -= 1;
+      }
+
+    }
+
+    if(lastDate) {
+      
+      let iterationLastDate = firstDate;
+      let k = 0;
+      
+      while (iterationLastDate < lastDate && lessonsId.length < 300 && !this.#hasYearPassed(firstDate, iterationLastDate)) {
+        
+        if(!days[k]) {
+          k = 0;
+        }
+        
+        // get dates by days of the week
+        let date = await this.#getDates(1, days[k], iterationLastDate);
+        
+        let insertedLesson = await db.query(sql, [date, title]);
+
+        lessonsId.push(insertedLesson.rows[0].id);
+        
+        iterationLastDate = date;
+        k += 1;
+      }
+
+    }
+
+    const lessonTeacherSql = `INSERT INTO lesson_teachers VALUES($1, $2)`;
+
+    for(let i = 0; i < lessonsId.length; i++) {
+      for(let j = 0; j < teacherIds.length; j++) {
+        await db.query(lessonTeacherSql, [lessonsId[i], teacherIds[j]]);
+      }
+    }
+
+    res.send(lessonsId);
+  }
 }
 
 module.exports = new LessonsController();
