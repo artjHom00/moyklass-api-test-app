@@ -37,7 +37,7 @@ class LessonsController {
     const { date, status, teacherIds, studentsCount, page, lessonsPerPage } =
       req.query;
 
-    if((new Date(date) == 'Invalid Date')) {
+    if(date && (new Date(date) == 'Invalid Date')) {
       res
         .status(400)
         .send({ error: "Неверно указан параметр date" });
